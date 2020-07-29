@@ -1,0 +1,113 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import tensorflow as tf
+import math
+import pandas_datareader.data as web
+from sklearn.preprocessing import MinMaxScaler
+from datetime import date
+
+DAYS_BEFORE = 20
+SPLIT_PERCENTAGE = 0.8
+TICKER = "DTE.DE"
+FROM = date(2000, 1, 1)
+UNTIL = date(2020, 4, 15)
+
+stock = web.DataReader(TICKER, data_source="yahoo", start=FROM, end=UNTIL)
+initial_stock_data = np.array(stock["Close"])
+initial_stock_data = initial_stock_data.reshape(-1, 1)
+
+# Normalisierung der Werte
+min_max_scaler = MinMaxScaler(feature_range=(0, 1))
+stock_data = min_max_scaler.fit_transform(initial_stock_data)
+
+def arrange_data(data, days):
+    days_before_values = []
+    days_values = []
+    for i in range(len(data) - days - 1):
+        days_before_values.append(data[i:(i+days)])
+        days_values.append(data[i + days])
+    return np.array(days_before_values), np.array(days_values)
+
+days_before_values, days_values = arrange_data(stock_data, DAYS_BEFORE)
+days_before_values = days_before_values.reshape((days_before_values.shape[0], DAYS_BEFORE, 1))
+
+# In Test und Trainingsdaten aufteilen
+def split_to_percentage(data, percentage):
+    return data[0: int(len(data) * percentage)], data[int(len(data) * percentage):]
+
+X_train, X_test = split_to_percentage(days_before_values, SPLIT_PERCENTAGE)
+Y_train, Y_test = split_to_percentage(days_values, SPLIT_PERCENTAGE)
+
+from keras.optimizers import SGD
+from keras.models import Sequential
+from keras.layers.recurrent import LSTM
+from keras.layers.core import Dense
+
+model = Sequential()
+model.add(LSTM(units = 10, input_shape = (DAYS_BEFORE, 1)))
+
+# Output-Ebene
+model.add(Dense(units = 1))
+
+sgd = SGD(lr = 0.01)
+model.compile(loss="mean_squared_error", optimizer = sgd, metrics = [tf.keras.metrics.mse])
+model.fit(X_train, Y_train, epochs = 10, verbose = 1)
+
+score, _ = model.evaluate(X_test, Y_test)
+rmse = math.sqrt(score)
+print("RMSE: {}".format(rmse))
+
+predictions_on_test = model.predict(X_test)
+predictions_on_test = min_max_scaler.inverse_transform(predictions_on_test)
+
+# Gleitener Durchschnitt von n Werten
+def moving_average(ary, n = 3) :
+    ret = np.cumsum(ary, dtype = float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n-1:] / n
+
+mean = moving_average(predictions_on_test, DAYS_BEFORE)
+
+sells = []
+buys = []
+flag = -1
+tmp = []
+for i in range(len(mean)):
+    tmp.append(i)
+    if mean[i] > predictions_on_test[i] and flag != 1:
+        tmpAry = predictions_on_test[tmp[0]:tmp[-1]]
+        if len(tmpAry) >= 1:
+            sells.append(tmp[np.argmax(tmpAry)])
+        flag = 1
+        tmp = []
+    elif mean[i] < predictions_on_test[i] and flag != 0:
+        tmpAry = predictions_on_test[tmp[0]:tmp[-1]]
+        if len(tmpAry) >= 1:
+            buys.append(tmp[np.argmin(tmpAry)])
+        flag = 0
+        tmp = []
+
+sells2 = []
+buys2 = []
+test6 = initial_stock_data[-len(predictions_on_test):]
+for i in range(len(mean)):
+    sells2.append(test6[i] if i in sells else np.nan)
+    buys2.append(test6[i] if i in buys else np.nan)
+
+dates = np.array(stock.iloc[-len(sells2):].index)
+buyingDates = []
+sellingDates = []
+for date, buy, sell in zip(dates, buys2, sells2):
+    if ~np.isnan(buy):
+        buyingDates.append(date)
+    elif ~np.isnan(sell):
+        sellingDates.append(date)
+
+plt.plot(initial_stock_data[-len(predictions_on_test):], color="#CFCEC4", label="Kurs")
+plt.plot(predictions_on_test, label="Vorhersagen", color="blue", dashes=[6,2])
+plt.plot(mean, color="yellow", label="Gleitender Durchschnitt (n=20)")
+plt.scatter(range(len(buys2)), buys2, label = 'Kaufen', marker = '^', color = 'green', linewidth=5)
+plt.scatter(range(len(sells2)), sells2, label = 'Verkaufen', marker = 'v', color = 'red', linewidth=5)
+plt.legend(loc='upper left')
+plt.show()
