@@ -1,0 +1,97 @@
+from time import sleep
+import MetaTrader5 as Mt5
+# **********************************************************************************************************************
+# Prüft, ob eine Verbindung zum Metrader besteht
+if not Mt5.initialize():
+    print("Verbindung fehlgeschlagen")
+else:
+    print("Verbindung wurde aufgebaut")
+print()
+# **********************************************************************************************************************
+# Prüft, ob der Benutzer vorhanden ist und loggt sich ein
+authorized = Mt5.login(5410006, password="UCRRebqy")
+if authorized:
+    print("Konto wurde erkannt")
+    account_info = Mt5.account_info()
+    print(account_info)
+print()
+Mt5.login(5410006, password="UCRRebqy")
+# **********************************************************************************************************************
+# Gibt allgemeine Informationen des Wertpapieres aus
+print("Allgemeine Information:")
+info = Mt5.symbol_info("#SAP")
+print(info)
+print()
+# **********************************************************************************************************************
+# Gibt Echtzeitdaten 3 mal im 10 Sekunden takt aus
+print("Echtzeitdaten zum Kurs werden ausgegeben:")
+i = 0
+while i < 3:
+    # Speichere momentane Kursdaten von GBP/USD ab
+    lasttick = Mt5.symbol_info_tick("#SAP")
+    print(lasttick)
+    # Greife auf bestimmte Variable zu
+    print("Angebot:", lasttick.bid, " Nachfrage:", lasttick.ask)
+    i = i + 1
+    sleep(3)
+print()
+# **********************************************************************************************************************
+# Vorbereitung für einen Kauf
+
+# Datenanzeige des Pakets von MetaTrader 5
+print("MetaTrader5 package author: ", Mt5.__author__)
+print("MetaTrader5 package version: ", Mt5.__version__)
+
+# Verbindung herstellen zum MetaTrader 5 Terminal
+if not Mt5.initialize():
+    print("initialize() failed, error code =", Mt5.last_error())
+    quit()
+
+# Abrufen der Kontowährung
+account_currency = Mt5.account_info().currency
+print("Account сurrency:", account_currency)
+
+# Vorbereitung der Struktur request
+# Vorbereitung der Struktur request für einen Kauf
+symbol = "#SAP"
+symbol_info = Mt5.symbol_info(symbol)
+if symbol_info is None:
+    print(symbol, "not found, can not call order_check()")
+    Mt5.shutdown()
+    quit()
+
+lot = 0.1
+point = Mt5.symbol_info(symbol).point
+price = Mt5.symbol_info_tick(symbol).ask
+deviation = 20
+request = {
+    # Ordertyp, sofortigen Deal mit angegeben Parametern
+    "action": Mt5.TRADE_ACTION_DEAL,
+    # Eindeutiges Wertpapiersymbol
+    "symbol": symbol,
+    "volume": 1.0,
+    # Ordertyp, Kauf
+    "type": Mt5.ORDER_TYPE_BUY,
+    # Kaufpreis mit der aktuellen Nachfrage
+    "price": Mt5.symbol_info_tick(symbol).ask,
+    # Stop-Loss Order wird festgelegt
+    "sl": Mt5.symbol_info_tick(symbol).ask - 100 * point,
+    # Take-Profit wird festgelegt
+    "tp": Mt5.symbol_info_tick(symbol).ask + 100 * point,
+    # Abweichung vom gewünschten Preis in Punkten
+    "deviation": 10,
+    # Eindeutige ID für den Auftrag bestimmen
+    "magic": 234001,
+    "comment": "python script open",
+    "type_time": Mt5.ORDER_TIME_GTC,
+    "type_filling": Mt5.ORDER_FILLING_FOK,
+}
+# **********************************************************************************************************************
+# Senden eines Handelsauftrags
+result = Mt5.order_send(request)
+
+# Prüfen des Ausführungsergebnisses
+print("1. order_send(): by {} {} lots at {} with deviation={} points".format(symbol, lot, price, deviation));
+if result.retcode != Mt5.TRADE_RETCODE_DONE:
+    print("2. order_send failed, retcode={}".format(result.retcode))
+# **********************************************************************************************************************
